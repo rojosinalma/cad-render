@@ -1,0 +1,4 @@
+#!/bin/sh
+# Puma in front of the Python workers. No display is needed: PNG previews are software-rendered.
+set -e
+exec bundle exec puma -b "tcp://0.0.0.0:${PORT:-9292}" -t "${PUMA_THREADS:-8}:${PUMA_THREADS:-8}"
