@@ -1,0 +1,6 @@
+.git
+.env
+.openchamber
+AGENTS.md
+__pycache__
+*.pyc

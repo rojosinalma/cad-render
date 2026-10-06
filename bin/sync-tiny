@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Push the project source to the deploy host so the deployer's `image: build` has a context there.
+# compose*.yaml are owned by the deployer on the host and are never pushed (change them via PUT /api/services/:id/compose).
+# The .env goes along (0600). Usage: bin/sync-tiny [host] [remote-dir]
+set -euo pipefail
+cd "$(dirname "$0")/.."
+host="${1:-${CAD_DEPLOY_HOST:-tiny}}"
+dest="${2:-${CAD_DEPLOY_DIR:-dev/$(basename "$PWD")}}"
+rsync -az --delete --exclude .git --exclude .openchamber --exclude AGENTS.md --exclude __pycache__ \
+      --exclude '.venv' --exclude 'compose.yaml' --exclude 'compose.override.yaml' ./ "$host:$dest/"
+ssh "$host" "chmod 600 $dest/.env"
+echo "synced to $host:$dest"

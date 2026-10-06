@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# Smoke contract for cad-render. Exit 0 only when every check passes.
+#
+#   bin/verify                       # against CAD_RENDER_URL (default http://192.168.1.50:9292)
+#   CAD_RENDER_URL=http://... bin/verify
+#
+# Checks: /health 200; /render of examples/bracket.py to STL and STEP with X-Cad-Volume-mm3 within 1 %
+# of the analytic value; a fit check exits 3; /convert STEP -> STL; /repair of a non-manifold STL
+# becomes watertight; cad-render --to-bb --dry-run (BB auth + pipeline lookup, uploads nothing);
+# /zoo when ZOO_API_TOKEN is available to the service (skipped with a warning otherwise).
+set -euo pipefail
+cd "$(dirname "$0")/.."
+url="${CAD_RENDER_URL:-http://192.168.1.50:9292}"
+cli="${CAD_RENDER_CLI:-cad-render}"
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+fail() { echo "verify: FAIL $*" >&2; exit 1; }
+ok() { echo "verify: ok   $*"; }
+export CAD_RENDER_URL="$url"
+
+# Analytic volume of examples/bracket.py defaults (see its docstring).
+expected="$(python3 -c 'import math; print((40*30-(4-math.pi)*25)*10 - math.pi*36*10 - math.pi*(6+1/3))')"
+within_1pct() { python3 -c "import sys; a,b=float(sys.argv[1]),float(sys.argv[2]); sys.exit(0 if abs(a-b)/b < 0.01 else 1)" "$1" "$2"; }
+
+# 1. health
+health="$(curl -sS --max-time 20 -w '\n%{http_code}' "$url/health")" || fail "health: $url unreachable"
+[[ "${health##*$'\n'}" == 200 ]] || fail "health: HTTP ${health##*$'\n'}: ${health%$'\n'*}"
+ok "health 200 ($(printf '%s' "${health%$'\n'*}" | ruby -rjson -e 'd=JSON.parse($stdin.read); print "python #{d["python"]}, build123d #{d["build123d"]}, zoo_cli #{d["zoo_cli"]}"'))"
+
+# 2. render STL + STEP, volume check
+for fmt in stl step; do
+    hdr="$(curl -sS --max-time 300 -o "$tmp/bracket.$fmt" -D - -F file=@examples/bracket.py -F "format=$fmt" "$url/render")" || fail "render $fmt: request failed"
+    grep -q '^HTTP/.* 200' <<<"$hdr" || fail "render $fmt: $(head -1 <<<"$hdr") $(head -c 300 "$tmp/bracket.$fmt")"
+    [[ -s "$tmp/bracket.$fmt" ]] || fail "render $fmt: empty body"
+    vol="$(grep -i '^x-cad-volume-mm3:' <<<"$hdr" | tr -d '\r' | awk '{print $2}')"
+    within_1pct "$vol" "$expected" || fail "render $fmt: volume $vol not within 1 % of $expected"
+    ok "render $fmt $(stat -c %s "$tmp/bracket.$fmt") B, volume $vol (analytic $expected)"
+done
+grep -q 'ISO-10303-21' "$tmp/bracket.step" || fail "render step: not a STEP file"
+
+# 3. fit check -> exit 3
+if "$cli" examples/bracket.py -D part=fitcheck -o "$tmp/fit.stl" 2>/dev/null; then fail "fitcheck: expected exit 3, got 0"; else
+    rc=$?; [[ $rc == 3 ]] || fail "fitcheck: expected exit 3, got $rc"; fi
+ok "fit check exits 3"
+
+# 4. convert STEP -> STL
+"$cli" convert "$tmp/bracket.step" -o "$tmp/converted.stl" 2>"$tmp/conv.log" || fail "convert: $(cat "$tmp/conv.log")"
+[[ -s "$tmp/converted.stl" ]] || fail "convert: empty output"
+ok "convert step -> stl $(tail -1 "$tmp/conv.log" | sed 's/^cad-render: //')"
+
+# 5. repair a non-manifold STL (10 mm cube with one face missing -> watertight 1000 mm3)
+python3 - "$tmp/broken.stl" <<'EOF'
+import sys, struct
+# 10 mm cube, 12 triangles, minus the two triangles of the +Z face -> open mesh. Pure stdlib.
+v = [(x, y, z) for z in (0, 10) for y in (0, 10) for x in (0, 10)]
+tris = [(0,2,1),(1,2,3),(0,1,4),(1,5,4),(1,3,5),(3,7,5),(3,2,7),(2,6,7),(2,0,6),(0,4,6)]  # bottom + 4 sides, no top
+with open(sys.argv[1], "wb") as f:
+    f.write(b"\0" * 80 + struct.pack("<I", len(tris)))
+    for a, b, c in tris:
+        f.write(struct.pack("<3f", 0, 0, 0) + struct.pack("<9f", *v[a], *v[b], *v[c]) + b"\0\0")
+EOF
+[[ -s "$tmp/broken.stl" ]] || fail "repair: could not create the test mesh"
+hdr="$(curl -sS --max-time 120 -o "$tmp/fixed.stl" -D - -F file=@"$tmp/broken.stl" "$url/repair")" || fail "repair: request failed"
+grep -q '^HTTP/.* 200' <<<"$hdr" || fail "repair: $(head -1 <<<"$hdr") $(head -c 300 "$tmp/fixed.stl")"
+vol="$(grep -i '^x-cad-volume-mm3:' <<<"$hdr" | tr -d '\r' | awk '{print $2}')"
+within_1pct "$vol" 1000 || fail "repair: volume $vol, expected 1000 (not watertight?)"
+ok "repair non-manifold stl -> volume $vol"
+
+# 6. CLI --to-bb --dry-run: auth + pipeline lookup, nothing uploaded
+if [[ -n "${BAMBUDDY_API_KEY:-}" ]]; then
+    pipeline="${CAD_VERIFY_PIPELINE:-PLA STD 0.4 X2D}"
+    "$cli" examples/bracket.py -o "$tmp/dry.stl" --to-bb --dry-run --pipeline "$pipeline" 2>"$tmp/dry.log" || fail "to-bb dry run: $(cat "$tmp/dry.log")"
+    [[ ! -e "$tmp/dry.stl" ]] || fail "to-bb dry run rendered something"
+    ok "to-bb dry run: $(sed 's/^cad-render: dry run: //' "$tmp/dry.log")"
+else
+    echo "verify: WARN BAMBUDDY_API_KEY not set, --to-bb dry run skipped" >&2
+fi
+
+# 7. zoo (only when the service holds a token)
+if printf '%s' "${health%$'\n'*}" | grep -q '"zoo_token":true'; then
+    "$cli" zoo "a 20 mm cube with a 5 mm centred through hole" -o "$tmp/zoo.step" 2>"$tmp/zoo.log" || fail "zoo: $(cat "$tmp/zoo.log")"
+    grep -q 'ISO-10303-21' "$tmp/zoo.step" || fail "zoo: not a STEP file"
+    ok "zoo $(tail -1 "$tmp/zoo.log" | sed 's/^cad-render: //')"
+else
+    echo "verify: WARN service has no ZOO_API_TOKEN, zoo skipped" >&2
+fi
+
+echo "verify: OK"

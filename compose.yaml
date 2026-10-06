@@ -1,0 +1,40 @@
+---
+services:
+  cad-render:
+    container_name: cad-render
+    restart: unless-stopped
+    networks:
+    - default
+    - traefik-proxy
+    build: "."
+    # The build123d scripts it runs are arbitrary Python: no socket, no caps, read-only rootfs,
+    # scratch only in tmpfs. ZOO_API_TOKEN comes from /app/.env via dotenv, never from here.
+    # user = the host owner of the mounted project (rojo on tiny is 3000), so /app/.env (0600) is readable.
+    user: "3000:3000"
+    environment:
+    - RACK_ENV=development
+    - TZ=Europe/Berlin
+    - HOME=/tmp
+    read_only: true
+    tmpfs:
+    - /tmp:size=2g,uid=3000,gid=3000
+    cap_drop:
+    - ALL
+    security_opt:
+    - no-new-privileges:true
+    mem_limit: 4g
+    volumes:
+    - "/mnt/nvme-storage/home/rojo/dev/cad-render:/app"
+    # Reached by the CLI on silver via the LAN port: tiny's Traefik cert is from tiny's own minica CA.
+    ports:
+    - "192.168.1.50:9292:9292"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9292/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+networks:
+  default: {}
+  traefik-proxy:
+    external: true
