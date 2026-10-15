@@ -5,7 +5,7 @@ services:
     restart: unless-stopped
     networks:
     - default
-    - traefik-proxy
+    - ingress
     build: "."
     # The build123d scripts it runs are arbitrary Python: no socket, no caps, read-only rootfs,
     # scratch only in tmpfs. ZOO_API_TOKEN comes from /app/.env via dotenv, never from here.
@@ -36,5 +36,5 @@ services:
       retries: 3
 networks:
   default: {}
-  traefik-proxy:
+  ingress:
     external: true
