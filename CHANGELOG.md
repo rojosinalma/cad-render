@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- Bump `pillow` to 12.3.0 and `puma` to 7.2.1 (Dependabot alerts).
+
 ## [0.1.0] - 2026-10-16
 
 First public release.
