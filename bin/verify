@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Smoke contract for cad-render. Exit 0 only when every check passes.
 #
-#   bin/verify                       # against CAD_RENDER_URL (default http://10.10.10.50:9292)
+#   bin/verify                       # against CAD_RENDER_URL (default https://cad-render.rojo.internal)
 #   CAD_RENDER_URL=http://... bin/verify
 #
 # Checks: /health 200; /render of examples/bracket.py to STL and STEP with X-Cad-Volume-mm3 within 1 %
@@ -10,7 +10,7 @@
 # /zoo when ZOO_API_TOKEN is available to the service (skipped with a warning otherwise).
 set -euo pipefail
 cd "$(dirname "$0")/.."
-url="${CAD_RENDER_URL:-http://10.10.10.50:9292}"
+url="${CAD_RENDER_URL:-https://cad-render.rojo.internal}"
 cli="${CAD_RENDER_CLI:-cad-render}"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
