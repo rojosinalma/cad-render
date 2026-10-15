@@ -20,13 +20,17 @@ agents and scripts, one Docker container, file in / file out.
 git clone https://github.com/rojosinalma/cad-render.git
 cd cad-render
 cp .env.example .env            # add ZOO_API_TOKEN only if you want /zoo
-docker compose up -d --build    # first build takes a few minutes (OCP / build123d wheels)
+docker compose up -d            # pulls ghcr.io/rojosinalma/cad-render:latest (x86_64)
 curl http://localhost:9292/health
 bin/cad-render examples/bracket.py -o bracket.stl
 ```
 
 `bin/cad-render` needs `bash`, `curl`, `tar` and `ruby` on the client. Put it on your `PATH` and set
 `CAD_RENDER_URL` if the service runs elsewhere.
+
+Prebuilt images: `ghcr.io/rojosinalma/cad-render:<version>` and `:latest` (pin with `CAD_IMAGE_TAG` in
+`.env`). To build locally instead — other architectures, or after editing the `Dockerfile` — run
+`docker compose up -d --build` (the first build takes a few minutes for the OCP / build123d wheels).
 
 ## CLI
 
@@ -167,6 +171,7 @@ with dotenv), never in `compose.yaml` `environment:`.
 | Variable | Default | Meaning |
 |---|---|---|
 | `CAD_PORT` | `9292` | Host port |
+| `CAD_IMAGE_TAG` | `latest` | Tag of `ghcr.io/rojosinalma/cad-render` to pull |
 | `CAD_UID` / `CAD_GID` | `1000` / `1000` | Container user — match the owner of the checkout so `.env` (0600) is readable |
 | `TZ` | `UTC` | Container time zone (log timestamps) |
 

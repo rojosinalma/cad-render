@@ -3,7 +3,10 @@ services:
   cad-render:
     container_name: cad-render
     restart: unless-stopped
+    # Prebuilt image from GHCR (x86_64). `docker compose up -d` pulls it; `--build` builds locally.
+    image: "ghcr.io/rojosinalma/cad-render:${CAD_IMAGE_TAG:-latest}"
     build: "."
+    pull_policy: missing
     # The build123d scripts it runs are arbitrary Python: no Docker socket, no capabilities,
     # read-only rootfs, scratch space only in tmpfs, hard job timeout. ZOO_API_TOKEN comes from
     # /app/.env via dotenv, never from here.
