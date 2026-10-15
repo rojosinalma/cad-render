@@ -1,0 +1,182 @@
+#!/usr/bin/env bash
+# B-rep CAD through a cad-render service (build123d), with optional hand-off to Bambuddy's
+# File Manager and a slicer pipeline.
+#
+#   cad-render [render] <part.py> -o <out.{stl,step,3mf,png}> [-D name=value]... [--root DIR]
+#   cad-render convert <in.{step,stl,3mf,obj,ply}> -o <out.{stl,step,3mf,obj,ply,png}>
+#   cad-render repair  <in.{stl,3mf,obj,ply,step}> [-o <out>]        (default: <in>.repaired.<ext>)
+#   cad-render zoo "<prompt>" -o <out.{step,stl,3mf,obj,glb,kcl}>    (also writes <out>.kcl)
+#
+# All subcommands accept:
+#   --to-bb                 upload the result to Bambuddy's library (and run a pipeline if given)
+#   --folder <name>         BB library folder, by name (default: library root)
+#   --pipeline "<name>"     BB slicer pipeline, by name; runs it on the uploaded file.
+#                           A pipeline run slices AND enqueues a print on the target printer, so
+#                           make sure a human approved that exact job before running one.
+#   --copies N              copies for the pipeline run (default 1)
+#   --dry-run               with --to-bb: check BB auth, resolve folder + pipeline, upload nothing
+#   --log                   print the worker log to stderr
+#
+# The script's directory (or --root) is sent as a tarball, so sibling imports work. Scripts expose
+# `result` at module level or a `build()` function; -D name=value become module globals.
+#
+# Exit codes: 0 ok, 3 empty geometry (fit check passed, nothing written), 4 Zoo failure,
+#             5 Bambuddy upload/pipeline failure (the local file is kept), 1 other failure, 2 usage.
+#
+# Tunables (env): CAD_RENDER_URL (default http://localhost:9292), CAD_RENDER_TIMEOUT (curl, s, 900),
+#                 BAMBUDDY_URL and BAMBUDDY_API_KEY (both required for --to-bb)
+set -euo pipefail
+
+url="${CAD_RENDER_URL:-http://localhost:9292}"
+bb_url="${BAMBUDDY_URL:-}"
+curl_timeout="${CAD_RENDER_TIMEOUT:-900}"
+
+op="render" input="" out="" root="" show_log=0
+to_bb=0 bb_folder="" bb_pipeline="" bb_copies=1 dry_run=0
+defines=()
+
+usage() { sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+die() { echo "cad-render: $1" >&2; exit "${2:-1}"; }
+
+case "${1:-}" in
+    render|convert|repair|zoo) op="$1"; shift ;;
+esac
+
+while (($#)); do
+    if [[ "$1" == --*=* ]]; then set -- "${1%%=*}" "${1#*=}" "${@:2}"; fi
+    case "$1" in
+        -o) out="$2"; shift 2 ;;
+        -D) defines+=("$2"); shift 2 ;;
+        -D*) defines+=("${1#-D}"); shift ;;
+        --root) root="$2"; shift 2 ;;
+        --log) show_log=1; shift ;;
+        --to-bb) to_bb=1; shift ;;
+        --folder) bb_folder="$2"; shift 2 ;;
+        --pipeline) bb_pipeline="$2"; shift 2 ;;
+        --copies) bb_copies="$2"; shift 2 ;;
+        --dry-run) dry_run=1; shift ;;
+        -h|--help) usage ;;
+        -*) echo "cad-render: unknown option $1" >&2; usage ;;
+        *) [[ -z "$input" ]] || usage; input="$1"; shift ;;
+    esac
+done
+[[ -n "$input" ]] || usage
+[[ "$bb_copies" =~ ^[0-9]+$ && "$bb_copies" -ge 1 ]] || die "--copies must be a positive integer" 2
+((to_bb)) || ((!dry_run)) || die "--dry-run only makes sense with --to-bb" 2
+
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+
+# --- Bambuddy helpers (CLI side only; the service never talks to BB) -----------------------------
+
+bb_get() { curl -sS --max-time 30 -H "X-API-Key: $BAMBUDDY_API_KEY" -w '\n%{http_code}' "$bb_url$1"; }
+
+# Resolves folder and pipeline names to ids before any work, so a typo fails fast and cheaply.
+bb_resolve() {
+    [[ -n "$bb_url" && -n "${BAMBUDDY_API_KEY:-}" ]] || die "--to-bb needs BAMBUDDY_URL and BAMBUDDY_API_KEY in the environment" 5
+    local resp code
+    resp="$(bb_get /api/v1/library/folders/)" || die "Bambuddy unreachable at $bb_url" 5
+    code="${resp##*$'\n'}"; resp="${resp%$'\n'*}"
+    [[ "$code" == 200 ]] || die "Bambuddy auth/folder lookup failed (HTTP $code): ${resp:0:200}" 5
+    bb_folder_id=""
+    if [[ -n "$bb_folder" ]]; then
+        bb_folder_id="$(FOLDERS="$resp" NAME="$bb_folder" ruby -rjson -e '
+            def walk(list, name) = list.each { |f| return f["id"] if f["name"].casecmp?(name); (id = walk(f["children"] || [], name)) and return id }; nil
+            id = walk(JSON.parse(ENV["FOLDERS"]), ENV["NAME"]); abort("") unless id; print id')" \
+            || die "Bambuddy has no library folder named \"$bb_folder\"" 5
+    fi
+    bb_pipeline_id=""
+    if [[ -n "$bb_pipeline" ]]; then
+        resp="$(bb_get /api/v1/slicer-pipelines/)"; code="${resp##*$'\n'}"; resp="${resp%$'\n'*}"
+        [[ "$code" == 200 ]] || die "Bambuddy pipeline lookup failed (HTTP $code): ${resp:0:200}" 5
+        bb_pipeline_id="$(PIPES="$resp" NAME="$bb_pipeline" ruby -rjson -e '
+            d = JSON.parse(ENV["PIPES"]); list = d.is_a?(Hash) ? d["pipelines"] : d
+            p = list.find { |x| x["name"].casecmp?(ENV["NAME"]) }
+            abort("available: " + list.map { |x| x["name"] }.join(" | ")) unless p; print p["id"]')" \
+            || die "Bambuddy has no slicer pipeline named \"$bb_pipeline\"" 5
+    fi
+}
+
+bb_upload_and_run() {
+    local file="$1" q="" resp code file_id
+    [[ -n "$bb_folder_id" ]] && q="?folder_id=$bb_folder_id"
+    resp="$(curl -sS --max-time 300 -H "X-API-Key: $BAMBUDDY_API_KEY" -F "file=@$file" \
+            -w '\n%{http_code}' "$bb_url/api/v1/library/files/$q")" || die "Bambuddy upload failed (connection); kept $file" 5
+    code="${resp##*$'\n'}"; resp="${resp%$'\n'*}"
+    [[ "$code" =~ ^20 ]] || die "Bambuddy upload failed (HTTP $code): ${resp:0:300}; kept $file" 5
+    file_id="$(RESP="$resp" ruby -rjson -e 'd = JSON.parse(ENV["RESP"]); print(d["id"] || d.dig("file", "id") || d.dig("files", 0, "id") || "")')"
+    [[ -n "$file_id" ]] || die "Bambuddy upload returned no file id: ${resp:0:300}" 5
+    echo "cad-render: uploaded to Bambuddy as library file $file_id${bb_folder:+ (folder \"$bb_folder\")}" >&2
+    [[ -n "$bb_pipeline_id" ]] || return 0
+    resp="$(curl -sS --max-time 60 -H "X-API-Key: $BAMBUDDY_API_KEY" -H 'Content-Type: application/json' \
+            -d "{\"source_library_file_id\": $file_id, \"copies\": $bb_copies}" \
+            -w '\n%{http_code}' "$bb_url/api/v1/slicer-pipelines/$bb_pipeline_id/run")" || die "Bambuddy pipeline run failed (connection)" 5
+    code="${resp##*$'\n'}"; resp="${resp%$'\n'*}"
+    [[ "$code" =~ ^20 ]] || die "Bambuddy pipeline \"$bb_pipeline\" run failed (HTTP $code): ${resp:0:300}" 5
+    echo "cad-render: pipeline \"$bb_pipeline\" started on file $file_id (run $(RESP="$resp" ruby -rjson -e 'print JSON.parse(ENV["RESP"])["id"]'), copies $bb_copies)" >&2
+}
+
+((to_bb)) && bb_resolve
+if ((dry_run)); then
+    echo "cad-render: dry run: Bambuddy auth ok${bb_folder:+, folder \"$bb_folder\" = id $bb_folder_id}${bb_pipeline:+, pipeline \"$bb_pipeline\" = id $bb_pipeline_id}, copies $bb_copies; nothing uploaded" >&2
+    exit 0
+fi
+
+# --- build the request -------------------------------------------------------------------------
+
+args=(-sS --max-time "$curl_timeout" -o "$tmp/resp.json" -w '%{http_code}')
+case "$op" in
+    render)
+        [[ -n "$out" ]] || usage
+        [[ -f "$input" ]] || die "$input not found" 2
+        root="$(cd "${root:-$(dirname "$input")}" && pwd)"
+        main_abs="$(cd "$(dirname "$input")" && pwd)/$(basename "$input")"
+        [[ "$main_abs" == "$root"/* ]] || die "$input is not inside $root" 2
+        rel="${main_abs#"$root"/}"
+        tar -czf "$tmp/project.tgz" -C "$root" --exclude=.git --exclude=__pycache__ \
+            --exclude='*.stl' --exclude='*.3mf' --exclude='*.step' --exclude='*.png' .
+        args+=(-F "project=@$tmp/project.tgz" -F "main=$rel" -F "format=${out##*.}" -F log=1)
+        for d in "${defines[@]}"; do args+=(-F "D[]=$d"); done
+        endpoint=render ;;
+    convert)
+        [[ -n "$out" ]] || usage
+        [[ -f "$input" ]] || die "$input not found" 2
+        args+=(-F "file=@$input" -F "format=${out##*.}" -F log=1); endpoint=convert ;;
+    repair)
+        [[ -f "$input" ]] || die "$input not found" 2
+        [[ -n "$out" ]] || out="${input%.*}.repaired.${input##*.}"
+        args+=(-F "file=@$input" -F "format=${out##*.}" -F log=1); endpoint=repair ;;
+    zoo)
+        [[ -n "$out" ]] || usage
+        args+=(-H 'Content-Type: application/json' -d "$(PROMPT="$input" FMT="${out##*.}" ruby -rjson -e 'print({prompt: ENV["PROMPT"], format: ENV["FMT"], log: 1}.to_json)')")
+        endpoint=zoo ;;
+esac
+
+code="$(curl "${args[@]}" "$url/$endpoint")" || die "request to $url/$endpoint failed" "$([[ $op == zoo ]] && echo 4 || echo 1)"
+
+RESP="$tmp/resp.json" OUT="$out" SHOW_LOG="$show_log" CODE="$code" OP="$op" ruby -rjson -rbase64 -e '
+  body = File.read(ENV["RESP"])
+  fail_code = ENV["OP"] == "zoo" ? 4 : 1
+  d = JSON.parse(body) rescue (warn("cad-render: HTTP #{ENV["CODE"]}: #{body[0, 300]}"); exit fail_code)
+  $stderr.puts d["log"] if ENV["SHOW_LOG"] == "1" && d["log"]
+  unless d["ok"]
+    warn "cad-render: #{d["message"]}"
+    warn d["log"].to_s.lines.grep(/Error|error:|Traceback/).last(5).join unless ENV["SHOW_LOG"] == "1"
+    exit fail_code
+  end
+  if d["empty"]
+    $stderr.puts "cad-render: result is empty (nothing written)"
+    exit 3
+  end
+  File.binwrite(ENV["OUT"], Base64.strict_decode64(d["output_base64"]))
+  File.write(ENV["OUT"].sub(/\.[^.]+\z/, "") + ".kcl", d["kcl"]) if d["kcl"] && !ENV["OUT"].end_with?(".kcl")
+  bb = d["bbox"]
+  size = bb ? " %.2f x %.2f x %.2f mm" % [bb[3] - bb[0], bb[4] - bb[1], bb[5] - bb[2]] : ""
+  vol = d["volume_mm3"] ? ", #{d["volume_mm3"].round(1)} mm3" : ""
+  warn_note = d["warnings"].to_a.empty? ? "" : ", #{d["warnings"].size} warnings: #{d["warnings"].join("; ")}"
+  zoo_note = d["zoo_id"] ? ", zoo #{d["zoo_id"]}" : ""
+  $stderr.puts "cad-render: #{ENV["OUT"]} (#{d["format"]}, #{d["bytes"]} B,#{size}#{vol}, #{d["seconds"]}s#{warn_note}#{zoo_note})"
+'
+
+((to_bb)) && bb_upload_and_run "$out"
+exit 0
