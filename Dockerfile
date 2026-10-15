@@ -29,6 +29,10 @@ RUN gem install bundler --no-document && bundle install
 
 COPY . .
 
+LABEL org.opencontainers.image.source="https://github.com/rojosinalma/cad-render" \
+      org.opencontainers.image.description="Headless B-rep CAD service: build123d scripts to STL/STEP/3MF/PNG, mesh convert/repair, Zoo text-to-CAD" \
+      org.opencontainers.image.licenses="MIT"
+
 RUN useradd -u 1000 -m -s /bin/sh cad
 USER 1000
 ENV LANG=C.UTF-8 HOME=/tmp
