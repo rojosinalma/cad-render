@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Push the source to a remote deploy host; compose*.yaml are excluded so a host-local compose
+# (e.g. one managed by an orchestrator) is never overwritten. The .env goes along and is chmod 0600
+# on the remote.
+#
+#   bin/deploy-rsync [host] [remote-dir]       # or CAD_DEPLOY_HOST / CAD_DEPLOY_DIR in the environment
+#
+# remote-dir defaults to dev/<project basename> relative to the remote home.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+host="${1:-${CAD_DEPLOY_HOST:-}}"
+dest="${2:-${CAD_DEPLOY_DIR:-dev/$(basename "$PWD")}}"
+if [[ -z "$host" ]]; then
+    echo "usage: bin/deploy-rsync <host> [remote-dir]   (or set CAD_DEPLOY_HOST / CAD_DEPLOY_DIR)" >&2
+    exit 2
+fi
+rsync -az --delete --exclude .git --exclude .openchamber --exclude AGENTS.md --exclude __pycache__ \
+      --exclude '.venv' --exclude 'compose.yaml' --exclude 'compose.override.yaml' ./ "$host:$dest/"
+ssh "$host" "chmod 600 $dest/.env"
+echo "synced to $host:$dest"

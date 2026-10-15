@@ -1,17 +1,20 @@
 #!/usr/bin/env bash
 # Smoke contract for cad-render. Exit 0 only when every check passes.
 #
-#   bin/verify                       # against CAD_RENDER_URL (default https://cad-render.example.internal)
+#   bin/verify                       # against CAD_RENDER_URL (default http://localhost:9292)
 #   CAD_RENDER_URL=http://... bin/verify
+#
+# Uses the repo's own bin/cad-render unless CAD_RENDER_CLI points elsewhere.
 #
 # Checks: /health 200; /render of examples/bracket.py to STL and STEP with X-Cad-Volume-mm3 within 1 %
 # of the analytic value; a fit check exits 3; /convert STEP -> STL; /repair of a non-manifold STL
-# becomes watertight; cad-render --to-bb --dry-run (BB auth + pipeline lookup, uploads nothing);
-# /zoo when ZOO_API_TOKEN is available to the service (skipped with a warning otherwise).
+# becomes watertight; cad-render --to-bb --dry-run (Bambuddy auth + pipeline lookup, uploads nothing;
+# skipped with a warning unless BAMBUDDY_URL and BAMBUDDY_API_KEY are set); /zoo when ZOO_API_TOKEN
+# is available to the service (skipped with a warning otherwise).
 set -euo pipefail
 cd "$(dirname "$0")/.."
-url="${CAD_RENDER_URL:-https://cad-render.example.internal}"
-cli="${CAD_RENDER_CLI:-cad-render}"
+url="${CAD_RENDER_URL:-http://localhost:9292}"
+cli="${CAD_RENDER_CLI:-$PWD/bin/cad-render}"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 fail() { echo "verify: FAIL $*" >&2; exit 1; }
@@ -66,14 +69,14 @@ vol="$(grep -i '^x-cad-volume-mm3:' <<<"$hdr" | tr -d '\r' | awk '{print $2}')"
 within_1pct "$vol" 1000 || fail "repair: volume $vol, expected 1000 (not watertight?)"
 ok "repair non-manifold stl -> volume $vol"
 
-# 6. CLI --to-bb --dry-run: auth + pipeline lookup, nothing uploaded
-if [[ -n "${BAMBUDDY_API_KEY:-}" ]]; then
-    pipeline="${CAD_VERIFY_PIPELINE:-PLA STD 0.4 X2D}"
-    "$cli" examples/bracket.py -o "$tmp/dry.stl" --to-bb --dry-run --pipeline "$pipeline" 2>"$tmp/dry.log" || fail "to-bb dry run: $(cat "$tmp/dry.log")"
+# 6. CLI --to-bb --dry-run: auth (+ pipeline lookup when CAD_VERIFY_PIPELINE names one), nothing uploaded
+if [[ -n "${BAMBUDDY_API_KEY:-}" && -n "${BAMBUDDY_URL:-}" ]]; then
+    pipeline_args=(); [[ -n "${CAD_VERIFY_PIPELINE:-}" ]] && pipeline_args=(--pipeline "$CAD_VERIFY_PIPELINE")
+    "$cli" examples/bracket.py -o "$tmp/dry.stl" --to-bb --dry-run "${pipeline_args[@]}" 2>"$tmp/dry.log" || fail "to-bb dry run: $(cat "$tmp/dry.log")"
     [[ ! -e "$tmp/dry.stl" ]] || fail "to-bb dry run rendered something"
     ok "to-bb dry run: $(sed 's/^cad-render: dry run: //' "$tmp/dry.log")"
 else
-    echo "verify: WARN BAMBUDDY_API_KEY not set, --to-bb dry run skipped" >&2
+    echo "verify: WARN BAMBUDDY_URL or BAMBUDDY_API_KEY not set, --to-bb dry run skipped" >&2
 fi
 
 # 7. zoo (only when the service holds a token)
