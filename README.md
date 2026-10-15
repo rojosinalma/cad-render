@@ -5,7 +5,6 @@ STL / STEP / 3MF / PNG, convert and repair meshes, and generate CAD from a text 
 agents and scripts, one Docker container, file in / file out.
 
 ![cad-render demo](docs/demo.png)
-<!-- TODO: screenshot/GIF of a render + PNG preview -->
 
 ## What it does
 
