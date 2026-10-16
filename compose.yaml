@@ -3,18 +3,17 @@ services:
   cad-render:
     container_name: cad-render
     restart: unless-stopped
-    # Prebuilt image from GHCR (x86_64). `docker compose up -d` pulls it; `--build` builds locally.
+    # Prebuilt multi-arch image from GHCR (amd64, arm64). Pin a version with CAD_IMAGE_TAG in .env.
+    # To build locally instead, add a compose.override.yaml (see docs/development.md).
     image: "ghcr.io/rojosinalma/cad-render:${CAD_IMAGE_TAG:-latest}"
-    build: "."
-    pull_policy: missing
     # The build123d scripts it runs are arbitrary Python: no Docker socket, no capabilities,
     # read-only rootfs, scratch space only in tmpfs, hard job timeout. ZOO_API_TOKEN comes from
     # /app/.env via dotenv, never from here.
-    # user = the host owner of the mounted project, so /app/.env (0600) is readable. Set CAD_UID/CAD_GID
-    # in .env (compose reads it for ${...} substitution) when your uid is not 1000.
+    # user = the host owner of .env, so the 0600 file is readable. Set CAD_UID/CAD_GID in .env
+    # (compose reads it for ${...} substitution) when your uid is not 1000.
     user: "${CAD_UID:-1000}:${CAD_GID:-1000}"
     environment:
-    - RACK_ENV=development
+    - RACK_ENV=production
     - TZ=${TZ:-UTC}
     - HOME=/tmp
     read_only: true
@@ -26,7 +25,10 @@ services:
     - no-new-privileges:true
     mem_limit: 4g
     volumes:
-    - ".:/app"
+    - type: bind
+      source: ./.env
+      target: /app/.env
+      read_only: true
     ports:
     - "${CAD_PORT:-9292}:9292"
     healthcheck:

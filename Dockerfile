@@ -1,6 +1,7 @@
-# Python 3.12 (build123d/OCP) + Ruby (Roda) in one image; the Python env lives outside /app so the
-# live mount of the project does not hide it.
+# Python 3.12 (build123d/OCP) + Ruby (Roda) in one image; the Python env lives outside /app so a
+# development mount of the project does not hide it.
 FROM python:3.12.15-slim-trixie
+ARG TARGETARCH
 
 COPY --from=ghcr.io/astral-sh/uv:0.9.23 /uv /uvx /bin/
 
@@ -10,12 +11,19 @@ RUN apt-get update && \
         libgl1 libglu1-mesa libxrender1 libxext6 libx11-6 libsm6 libice6 libxi6 libfontconfig1 && \
     rm -rf /var/lib/apt/lists/*
 
-# Zoo CLI: turns the copilot's KCL into STEP/STL via Zoo's Engine API (pinned, checksum verified).
+# Zoo CLI: turns the copilot's KCL into STEP/STL via Zoo's Engine API (pinned, checksum verified,
+# one static musl binary per architecture).
 ARG ZOO_CLI_VERSION=v0.2.202
-ARG ZOO_CLI_SHA256=fef7f6d82beabf6262faaf243668d5154667925b16c34af7c45a567e172b12e1
-RUN curl -fsSL -o /usr/local/bin/zoo \
-      "https://github.com/KittyCAD/cli/releases/download/${ZOO_CLI_VERSION}/zoo-x86_64-unknown-linux-musl" && \
-    echo "${ZOO_CLI_SHA256}  /usr/local/bin/zoo" | sha256sum -c - && \
+ARG ZOO_CLI_SHA256_AMD64=fef7f6d82beabf6262faaf243668d5154667925b16c34af7c45a567e172b12e1
+ARG ZOO_CLI_SHA256_ARM64=b1828d4f2c2b95ba6fe27ca59acf354155f54faac6a932686d94b623fc5fa424
+RUN case "${TARGETARCH:-amd64}" in \
+      amd64) triple=x86_64-unknown-linux-musl; sha="${ZOO_CLI_SHA256_AMD64}" ;; \
+      arm64) triple=aarch64-unknown-linux-musl; sha="${ZOO_CLI_SHA256_ARM64}" ;; \
+      *) echo "unsupported TARGETARCH ${TARGETARCH}" >&2; exit 1 ;; \
+    esac && \
+    curl -fsSL -o /usr/local/bin/zoo \
+      "https://github.com/KittyCAD/cli/releases/download/${ZOO_CLI_VERSION}/zoo-${triple}" && \
+    echo "${sha}  /usr/local/bin/zoo" | sha256sum -c - && \
     chmod +x /usr/local/bin/zoo
 
 ENV UV_PROJECT_ENVIRONMENT=/opt/venv UV_LINK_MODE=copy UV_COMPILE_BYTECODE=1

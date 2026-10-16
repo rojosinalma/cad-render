@@ -9,7 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Prebuilt image `ghcr.io/rojosinalma/cad-render` (`<version>`, `latest`); compose pulls it unless `--build`.
+- Prebuilt multi-arch image `ghcr.io/rojosinalma/cad-render` (`linux/amd64`, `linux/arm64`; tags
+  `<version>`, `<major>.<minor>`, `latest`, `sha-<short>`), published by GitHub Actions
+  (`publish-image.yml`). The `zoo` CLI is downloaded per architecture with a pinned checksum.
+- `compose.override.yaml.example`: the development variant (local build, `.:/app` mount,
+  `RACK_ENV=development`).
+- `CONTRIBUTING.md`, `docs/SDD.md` and topic docs under `docs/` (CLI, API, writing parts,
+  configuration, security, development).
+
+### Changed
+
+- `compose.yaml` now runs the published image in production mode: `RACK_ENV=production`, no source
+  mount, only `.env` bind-mounted read-only. Local builds and live reload moved to the override file.
+- README reduced to description, requirements, setup and licence; the rest lives in `docs/`.
+
+### Removed
+
+- `bin/deploy-rsync`. Pull the image on the target host instead.
 
 ### Security
 
