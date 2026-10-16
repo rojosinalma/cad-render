@@ -39,10 +39,12 @@ COPY . .
 
 LABEL org.opencontainers.image.source="https://github.com/rojosinalma/cad-render" \
       org.opencontainers.image.description="Headless B-rep CAD service: build123d scripts to STL/STEP/3MF/PNG, mesh convert/repair, Zoo text-to-CAD" \
-      org.opencontainers.image.licenses="MIT"
+      org.opencontainers.image.licenses="AGPL-3.0-only"
 
 RUN useradd -u 1000 -m -s /bin/sh cad
 USER 1000
 ENV LANG=C.UTF-8 HOME=/tmp
 EXPOSE 9292
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+  CMD curl -fsS "http://localhost:${PORT:-9292}/health" || exit 1
 ENTRYPOINT ["/app/bin/entrypoint"]

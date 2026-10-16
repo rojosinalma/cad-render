@@ -40,16 +40,20 @@ you add behaviour that can break.
 ## Commits and PRs
 
 - Plain, descriptive commit messages in the imperative ("Add PLY loader"), one logical change per
-  commit.
+  commit. Every commit and tag is GPG-signed (`git config commit.gpgsign true`).
 - Open a PR against `main`; say what changed and how you verified it (`bin/verify` output is enough).
 - Add a line under `## [Unreleased]` in `CHANGELOG.md` for anything user-visible.
 
 ## Documentation
 
-The README stays short (what it is, requirements, setup, licence). Everything else lives in `docs/`:
+The README stays short (what it is, requirements, installation, usage, development, licence).
+Everything else lives in `docs/` and the repository-level documents:
 
 | File | Content |
 |---|---|
+| `CHANGELOG.md` | Keep a Changelog; one line per user-visible change under `Unreleased` |
+| `SECURITY.md` | how to report a vulnerability, supported versions |
+| `CODE_OF_CONDUCT.md` | Contributor Covenant 2.1 |
 | `docs/cli.md` | `bin/cad-render` usage, options, exit codes, environment |
 | `docs/writing-parts.md` | the part contract, `-D` defines, fit checks, the reference part |
 | `docs/api.md` | routes, headers, JSON mode, status codes |
@@ -63,6 +67,8 @@ The README stays short (what it is, requirements, setup, licence). Everything el
 
 1. Bump `VERSION` and `pyproject.toml`, move the `Unreleased` entries in `CHANGELOG.md` under the new
    version and write `docs/releases/vX.Y.Z.md`.
-2. Commit, tag `vX.Y.Z` and push the tag; `publish-image.yml` publishes
+2. Commit, sign-tag `vX.Y.Z` (`git tag -s`) and push the tag; `publish-image.yml` publishes
    `ghcr.io/rojosinalma/cad-render:X.Y.Z`, `:X.Y` and `:sha-<short>`.
 3. Create the GitHub release from the tag with the release notes.
+
+cad-render is licensed under the AGPL-3.0; contributions are accepted under the same licence.
