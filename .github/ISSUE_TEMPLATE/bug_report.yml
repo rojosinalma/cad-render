@@ -1,0 +1,64 @@
+name: Bug report
+description: Something does not work as documented
+title: "bug: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for the report. Remove any Zoo or Bambuddy API key from logs before pasting.
+  - type: input
+    id: version
+    attributes:
+      label: cad-render version
+      description: From `GET /health` (`version`), the `X-Cad-Version` header or the image tag.
+      placeholder: 0.1.1 / ghcr.io/rojosinalma/cad-render:latest
+    validations:
+      required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: How do you run it?
+      options:
+        - Docker image (ghcr.io)
+        - Docker, built from source (compose.override.yaml)
+    validations:
+      required: true
+  - type: dropdown
+    id: op
+    attributes:
+      label: Operation
+      multiple: true
+      options:
+        - render
+        - convert
+        - repair
+        - zoo
+        - CLI (bin/cad-render)
+        - --to-bb (Bambuddy)
+        - health / startup
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, what you got.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: The script or input file (or a minimal version of it) and the exact command.
+      placeholder: |
+        1. bin/cad-render part.py -o part.step -D hole_d=8
+        2. …
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant `docker logs cad-render` lines or the `--log` worker output. Secrets redacted.
+      render: text
+  - type: input
+    id: platform
+    attributes:
+      label: Host / architecture
+      placeholder: Ubuntu 24.04, Docker 27, linux/amd64

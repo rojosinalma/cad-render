@@ -1,7 +1,8 @@
 [project]
 name = "cad-render-worker"
-version = "0.1.0"
+version = "0.1.1"
 description = "Python workers for cad-render (build123d / trimesh / manifold3d)"
+license = "AGPL-3.0-only"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "build123d==0.13.0",

@@ -1,0 +1,40 @@
+name: Feature request
+description: Propose a change or an addition
+title: "feat: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do that cad-render does not let you do today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: How should it work? A new op, an input or output format, a header, a CLI option…
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      multiple: true
+      options:
+        - render (build123d)
+        - convert / repair (meshes)
+        - zoo (text-to-CAD)
+        - PNG preview
+        - CLI (bin/cad-render)
+        - Bambuddy hand-off
+        - API / response contract
+        - Docker / deployment
+        - Other
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope check
+      options:
+        - label: I searched existing issues and discussions.

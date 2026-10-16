@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-16
+
 ### Added
 
 - Prebuilt multi-arch image `ghcr.io/rojosinalma/cad-render` (`linux/amd64`, `linux/arm64`; tags
@@ -16,12 +18,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `RACK_ENV=development`).
 - `CONTRIBUTING.md`, `docs/SDD.md` and topic docs under `docs/` (CLI, API, writing parts,
   configuration, security, development).
+- `SECURITY.md`, `CODE_OF_CONDUCT.md` (Contributor Covenant 2.1), issue and pull request templates,
+  Dependabot for GitHub Actions, Bundler, uv and Docker.
+- `run-tests.yml` check workflow: Ruby and Python syntax, `uv lock --check`, shellcheck, compose
+  rendering.
+- `HEALTHCHECK` in the `Dockerfile` (the compose file already had one), so the plain `docker run`
+  image reports health too.
 
 ### Changed
 
 - `compose.yaml` now runs the published image in production mode: `RACK_ENV=production`, no source
   mount, only `.env` bind-mounted read-only. Local builds and live reload moved to the override file.
-- README reduced to description, requirements, setup and licence; the rest lives in `docs/`.
+- Licence changed from MIT to AGPL-3.0.
+- README reshaped: badges, requirements with minimum versions, installation, usage, development,
+  licence; the rest lives in `docs/`.
 
 ### Removed
 
@@ -62,5 +72,6 @@ First public release.
 - `bin/deploy-rsync` to push the checkout to a remote Docker host.
 - `examples/bracket.py` reference part with a known analytic volume.
 
-[Unreleased]: https://github.com/rojosinalma/cad-render/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/rojosinalma/cad-render/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/rojosinalma/cad-render/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/rojosinalma/cad-render/releases/tag/v0.1.0
