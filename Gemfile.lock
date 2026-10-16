@@ -8,7 +8,7 @@ GEM
       nio4r (~> 2.0)
     rack (3.2.7)
     rack-unreloader (2.1.0)
-    roda (3.108.0)
+    roda (3.109.0)
       rack
 
 PLATFORMS
@@ -20,7 +20,7 @@ DEPENDENCIES
   dotenv (~> 3.1)
   puma (~> 7.2)
   rack-unreloader (~> 2.1)
-  roda (~> 3.85)
+  roda (~> 3.109)
 
 BUNDLED WITH
    2.6.8
