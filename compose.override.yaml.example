@@ -1,0 +1,13 @@
+---
+# Development override: copy to compose.override.yaml (git-ignored) and `docker compose up -d --build`.
+# Builds the image from this checkout, mounts the source over /app so Ruby (rack-unreloader) and
+# Python changes apply on the next request. Rebuild only for Gemfile*, pyproject.toml/uv.lock or
+# the Dockerfile.
+services:
+  cad-render:
+    build: "."
+    pull_policy: build
+    environment:
+    - RACK_ENV=development
+    volumes: !override
+    - ".:/app"
