@@ -1,6 +1,6 @@
 # Python 3.12 (build123d/OCP) + Ruby (Roda) in one image; the Python env lives outside /app so a
 # development mount of the project does not hide it.
-FROM python:3.12.15-slim-trixie
+FROM python:3.14.8-slim-trixie
 ARG TARGETARCH
 
 COPY --from=ghcr.io/astral-sh/uv:0.9.23 /uv /uvx /bin/
